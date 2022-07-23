@@ -1,4 +1,4 @@
-package rpcie
+package server
 
 import (
 	"encoding/json"

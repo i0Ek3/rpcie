@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -15,11 +16,17 @@ import (
 	"github.com/i0Ek3/rpcie/codec"
 )
 
-const MagicNumber = 0x3bef5c
+const (
+	// MagicNumber denotes this is a rpcie request
+	MagicNumber = 0x3bef5c
+
+	Connected        = "200 Connected to rpcie"
+	DefaultRPCPath   = "/_rpcie_"
+	DefaultDebugPath = "/debug/rpcie"
+)
 
 // Option denotes the encoding and decoding method of the message
 type Option struct {
-	// MagicNumber denotes this is a rpcie request
 	MagicNumber int
 	CodecType   codec.Type
 
@@ -51,6 +58,32 @@ func (server *Server) Register(rcvr any) error {
 		return errors.New("rpc: service already defined: " + s.name)
 	}
 	return nil
+}
+
+func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "CONNECT" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = io.WriteString(w, "405 must CONNECT\n")
+		return
+	}
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		log.Print("rpc hijacking ", req.RemoteAddr, ": ", err.Error())
+		return
+	}
+	_, _ = io.WriteString(conn, "HTTP/1.0 "+Connected+"\n\n")
+	server.ServeConn(conn)
+}
+
+func (server *Server) HandleHTTP() {
+	http.Handle(DefaultRPCPath, server)
+	http.Handle(DefaultDebugPath, debugHTTP{server})
+	log.Println("rpc server debug path:", DefaultDebugPath)
+}
+
+func HandleHTTP() {
+	DefaultServer.HandleHTTP()
 }
 
 func Register(rcvr any) error {

@@ -9,3 +9,4 @@
 vendor
 storage
 rpcie
+client/rpcie.sock

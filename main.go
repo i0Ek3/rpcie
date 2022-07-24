@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -23,27 +24,23 @@ func (f Foo) Sum(args Args, reply *int) error {
 	return nil
 }
 
-func startServer(addr chan string) {
+func startServer(addrCh chan string) {
 	var foo Foo
 	if err := server.Register(&foo); err != nil {
 		log.Fatal("register error:", err)
 	}
-	l, err := net.Listen("tcp", ":0")
+	l, err := net.Listen("tcp", ":8888")
 	if err != nil {
 		log.Fatal("network error:", err)
 	}
-	log.Println("start rpc server on", l.Addr())
-	addr <- l.Addr().String()
-	server.Accept(l)
+	log.Printf("start rpc server on %s", l.Addr())
+	server.HandleHTTP()
+	addrCh <- l.Addr().String()
+	_ = http.Serve(l, nil)
 }
 
-func main() {
-	log.SetFlags(0)
-
-	addr := make(chan string)
-	go startServer(addr)
-
-	cli, _ := client.Dial("tcp", <-addr)
+func call(addrCh chan string) {
+	cli, _ := client.DialHTTP("tcp", <-addrCh)
 	defer func() { _ = cli.Close() }()
 
 	time.Sleep(time.Second)
@@ -62,4 +59,12 @@ func main() {
 		}(i)
 	}
 	wg.Wait()
+	log.Println("please visit http://localhost:8888/debug/rpcie")
+}
+
+func main() {
+	log.SetFlags(0)
+	addr := make(chan string)
+	go call(addr)
+	startServer(addr)
 }

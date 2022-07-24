@@ -3,12 +3,14 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/i0Ek3/rpcie/codec"
 )
@@ -20,11 +22,16 @@ type Option struct {
 	// MagicNumber denotes this is a rpcie request
 	MagicNumber int
 	CodecType   codec.Type
+
+	// timeout control
+	ConnectTimeout time.Duration
+	HandleTimeout  time.Duration
 }
 
 var DefaultOption = &Option{
-	MagicNumber: MagicNumber,
-	CodecType:   codec.GobType,
+	MagicNumber:    MagicNumber,
+	CodecType:      codec.GobType,
+	ConnectTimeout: 10 * time.Second,
 }
 
 // RPC Server
@@ -101,13 +108,13 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 		log.Printf("rpc server: invalid codec type %s:", opt.CodecType)
 		return
 	}
-	server.serveCodec(f(conn))
+	server.serveCodec(f(conn), &opt)
 }
 
 var invalidRequest = struct{}{}
 
 // serveCodec reads and handles request, and then sends response
-func (server *Server) serveCodec(cc codec.Codec) {
+func (server *Server) serveCodec(cc codec.Codec, opt *Option) {
 	// sendLock uses to ensure reply to the request
 	// message must be sent one by one
 	sendLock := new(sync.Mutex)
@@ -123,7 +130,7 @@ func (server *Server) serveCodec(cc codec.Codec) {
 			continue
 		}
 		wg.Add(1)
-		go server.handleRequest(cc, req, sendLock, wg)
+		go server.handleRequest(cc, req, sendLock, wg, opt.HandleTimeout)
 	}
 	wg.Wait()
 	_ = cc.Close()
@@ -185,15 +192,34 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body any, se
 	}
 }
 
-func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync.Mutex, wg *sync.WaitGroup) {
+func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync.Mutex, wg *sync.WaitGroup, timeout time.Duration) {
 	defer wg.Done()
-	// call method
-	err := req.svc.call(req.mtype, req.argv, req.replyv)
-	if err != nil {
-		req.h.Error = err.Error()
-		server.sendResponse(cc, req.h, invalidRequest, sendLock)
+	called := make(chan struct{})
+	sent := make(chan struct{})
+	go func() {
+		// call method
+		err := req.svc.call(req.mtype, req.argv, req.replyv)
+		called <- struct{}{}
+		if err != nil {
+			req.h.Error = err.Error()
+			server.sendResponse(cc, req.h, invalidRequest, sendLock)
+			sent <- struct{}{}
+			return
+		}
+		// pass replyv to sendResponse to complete serialization
+		server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)
+		sent <- struct{}{}
+	}()
+	if timeout == 0 {
+		<-called
+		<-sent
 		return
 	}
-	// pass replyv to sendResponse to complete serialization
-	server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)
+	select {
+	case <-time.After(timeout):
+		req.h.Error = fmt.Sprintf("rpc server: request handle timeout: expect within %s", timeout)
+		server.sendResponse(cc, req.h, invalidRequest, sendLock)
+	case <-called:
+		<-sent
+	}
 }

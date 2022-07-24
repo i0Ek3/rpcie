@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"sync"
@@ -54,7 +55,7 @@ func main() {
 			defer wg.Done()
 			args := &Args{Inta: i, Intb: i * i}
 			var reply int
-			if err := cli.Call("Foo.Sum", args, &reply); err != nil {
+			if err := cli.Call(context.Background(), "Foo.Sum", args, &reply); err != nil {
 				log.Fatal("call Fool.Sum error:", err)
 			}
 			log.Printf("%d + %d = %d", args.Inta, args.Intb, reply)

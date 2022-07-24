@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/i0Ek3/rpcie/client"
+	"github.com/i0Ek3/rpcie/registry"
 	"github.com/i0Ek3/rpcie/server"
+	"github.com/i0Ek3/rpcie/xclient"
 )
 
 type Foo int
@@ -24,47 +25,95 @@ func (f Foo) Sum(args Args, reply *int) error {
 	return nil
 }
 
-func startServer(addrCh chan string) {
-	var foo Foo
-	if err := server.Register(&foo); err != nil {
-		log.Fatal("register error:", err)
-	}
-	l, err := net.Listen("tcp", ":8888")
-	if err != nil {
-		log.Fatal("network error:", err)
-	}
-	log.Printf("start rpc server on %s", l.Addr())
-	server.HandleHTTP()
-	addrCh <- l.Addr().String()
+func (f Foo) Sleep(args Args, reply *int) error {
+	time.Sleep(time.Second * time.Duration(args.Inta))
+	*reply = args.Inta + args.Intb
+	return nil
+}
+
+func startRegistry(wg *sync.WaitGroup) {
+	l, _ := net.Listen("tcp", ":8888")
+	registry.HandleHTTP()
+	wg.Done()
 	_ = http.Serve(l, nil)
 }
 
-func call(addrCh chan string) {
-	cli, _ := client.DialHTTP("tcp", <-addrCh)
-	defer func() { _ = cli.Close() }()
+func startServer(registryAddr string, wg *sync.WaitGroup) {
+	var foo Foo
+	l, _ := net.Listen("tcp", ":0")
+	server := server.NewServer()
+	_ = server.Register(&foo)
+	registry.Heartbeat(registryAddr, "tcp@"+l.Addr().String(), 0)
+	wg.Done()
+	server.Accept(l)
+}
 
-	time.Sleep(time.Second)
+func foo(ctx context.Context, xc *xclient.XClient, typ, serviceMethod string, args *Args) {
+	var reply int
+	var err error
+	switch typ {
+	case "call":
+		err = xc.Call(ctx, serviceMethod, args, &reply)
+	case "broadcast":
+		err = xc.Broadcast(ctx, serviceMethod, args, &reply)
+	}
+	if err != nil {
+		log.Printf("%s %s error: %v", typ, serviceMethod, err)
+	} else {
+		log.Printf("%s %s success: %d + %d = %d", typ, serviceMethod, args.Inta, args.Intb, reply)
+	}
+}
+
+func call(registry string) {
+	d := xclient.NewRegistryDiscovery(registry, 0)
+	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
+	defer func() { _ = xc.Close() }()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			args := &Args{Inta: i, Intb: i * i}
-			var reply int
-			if err := cli.Call(context.Background(), "Foo.Sum", args, &reply); err != nil {
-				log.Fatal("call Fool.Sum error:", err)
-			}
-			log.Printf("%d + %d = %d", args.Inta, args.Intb, reply)
+			foo(context.Background(), xc, "call", "Foo.Sum", &Args{Inta: i, Intb: i * i})
 		}(i)
 	}
 	wg.Wait()
-	log.Println("please visit http://localhost:8888/debug/rpcie")
+}
+
+func broadcast(registry string) {
+	d := xclient.NewRegistryDiscovery(registry, 0)
+	xc := xclient.NewXClient(d, xclient.RandomSelect, nil)
+	defer func() { _ = xc.Close() }()
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			foo(context.Background(), xc, "broadcast", "Foo.Sum", &Args{Inta: i, Intb: i * i})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+			defer cancel()
+			foo(ctx, xc, "broadcast", "Foo.Sleep", &Args{Inta: i, Intb: i * i})
+		}(i)
+	}
+	wg.Wait()
 }
 
 func main() {
 	log.SetFlags(0)
-	addr := make(chan string)
-	go call(addr)
-	startServer(addr)
+	registryAddr := "http://localhost:8888/_rpcie_/registry"
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go startRegistry(&wg)
+	wg.Wait()
+
+	time.Sleep(time.Second)
+	wg.Add(2)
+	go startServer(registryAddr, &wg)
+	go startServer(registryAddr, &wg)
+	wg.Wait()
+
+	time.Sleep(time.Second)
+	call(registryAddr)
+	broadcast(registryAddr)
 }

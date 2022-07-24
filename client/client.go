@@ -212,7 +212,7 @@ func dialTimeout(f newClientFunc, network, addr string, opts ...*server.Option) 
 		result := <-ch
 		return result.client, result.err
 	}
-	// If the time.After() channel receives the message first,
+	// if the time.After() channel receives the message first,
 	// the NewClient execution timed out and an error was returned
 	select {
 	case <-time.After(opt.ConnectTimeout):
@@ -295,7 +295,7 @@ func DialHTTP(network, addr string, opts ...*server.Option) (*Client, error) {
 
 // XDial calls different methods to connect to a RPC server accroding the first parameter,
 // rpcAddr's format is protocol@addr: http@127.0.0.1:8888, tcp@127.0.0.1:8888, unix@/tmp/rpcie.sock
-func XDial(rpcAddr string, opts ...*server.Option) (*Client, error) {
+func (client *Client) XDial(rpcAddr string, opts ...*server.Option) (*Client, error) {
 	parts := strings.Split(rpcAddr, "@")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("rpc client err: wrong format '%s', expected protocol@addr", rpcAddr)

@@ -77,6 +77,20 @@ func TestClientCall(t *testing.T) {
 	})
 }
 
+func XDial(rpcAddr string, opts ...*server.Option) (*Client, error) {
+	parts := strings.Split(rpcAddr, "@")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("rpc client err: wrong format '%s', expected protocol@addr", rpcAddr)
+	}
+	protocol, addr := parts[0], parts[1]
+	switch protocol {
+	case "http":
+		return DialHTTP("tcp", addr, opts...)
+	default:
+		return Dial(protocol, addr, opts...)
+	}
+}
+
 func TestXDial(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		ch := make(chan struct{})

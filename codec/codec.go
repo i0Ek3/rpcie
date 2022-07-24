@@ -10,7 +10,7 @@ type Header struct {
 	Error string
 }
 
-// Codec is a interface used to encode and decode message body
+// Codec is an interface used to encode and decode message body
 type Codec interface {
 	io.Closer
 	ReadHeader(*Header) error
@@ -32,4 +32,5 @@ var NewCodecFuncMap map[Type]NewCodecFunc
 func init() {
 	NewCodecFuncMap = make(map[Type]NewCodecFunc)
 	NewCodecFuncMap[GobType] = NewGobCodec
+	NewCodecFuncMap[JsonType] = NewJsonCodec
 }

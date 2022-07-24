@@ -2,11 +2,12 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/i0Ek3/rpcie/codec"
@@ -26,13 +27,48 @@ var DefaultOption = &Option{
 	CodecType:   codec.GobType,
 }
 
-type Server struct{}
+// RPC Server
+type Server struct {
+	serviceMap sync.Map
+}
 
 func NewServer() *Server {
 	return &Server{}
 }
 
 var DefaultServer = NewServer()
+
+func (server *Server) Register(rcvr any) error {
+	s := newService(rcvr)
+	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
+		return errors.New("rpc: service already defined: " + s.name)
+	}
+	return nil
+}
+
+func Register(rcvr any) error {
+	return DefaultServer.Register(rcvr)
+}
+
+func (server *Server) findService(serviceMethod string) (svc *service, mtype *methodType, err error) {
+	dot := strings.LastIndex(serviceMethod, ".")
+	if dot < 0 {
+		err = errors.New("rpc server: servicer/method request ill-formed: " + serviceMethod)
+		return
+	}
+	serviceName, methodName := serviceMethod[:dot], serviceMethod[dot+1:]
+	svci, ok := server.serviceMap.Load(serviceName)
+	if !ok {
+		err = errors.New("rpc server: cannot find service " + serviceMethod)
+		return
+	}
+	svc = svci.(*service)
+	mtype = svc.method[methodName]
+	if mtype == nil {
+		err = errors.New("rpc server: cannot find method " + methodName)
+	}
+	return
+}
 
 func (server *Server) Accept(lis net.Listener) {
 	for {
@@ -93,12 +129,15 @@ func (server *Server) serveCodec(cc codec.Codec) {
 	_ = cc.Close()
 }
 
+// request stores the details of a Call object
 type request struct {
 	h *codec.Header
 	// request argument
 	argv reflect.Value
 	// request reply
 	replyv reflect.Value
+	mtype  *methodType
+	svc    *service
 }
 
 func (server *Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
@@ -118,10 +157,22 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 		return nil, err
 	}
 	req := &request{h: h}
-	// assume the type of request argv is string
-	req.argv = reflect.New(reflect.TypeOf(""))
-	if err = cc.ReadBody(req.argv.Interface()); err != nil {
-		log.Println("rpc server: read argv err:", err)
+	req.svc, req.mtype, err = server.findService(h.ServiceMethod)
+	if err != nil {
+		return req, nil
+	}
+	// create two input parameter objects
+	req.argv = req.mtype.newArgv()
+	req.replyv = req.mtype.newReplyv()
+
+	argvi := req.argv.Interface()
+	if req.argv.Type().Kind() != reflect.Ptr {
+		argvi = req.argv.Addr().Interface()
+	}
+	// deserialize the request message into the first input parameter argv
+	if err = cc.ReadBody(argvi); err != nil {
+		log.Println("rpc server: read body err:", err)
+		return req, err
 	}
 	return req, nil
 }
@@ -136,7 +187,13 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body any, se
 
 func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync.Mutex, wg *sync.WaitGroup) {
 	defer wg.Done()
-	log.Println(req.h, req.argv.Elem())
-	req.replyv = reflect.ValueOf(fmt.Sprintf("rpcie resp %d", req.h.Seq))
+	// call method
+	err := req.svc.call(req.mtype, req.argv, req.replyv)
+	if err != nil {
+		req.h.Error = err.Error()
+		server.sendResponse(cc, req.h, invalidRequest, sendLock)
+		return
+	}
+	// pass replyv to sendResponse to complete serialization
 	server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)
 }

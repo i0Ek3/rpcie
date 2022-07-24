@@ -13,22 +13,26 @@ import (
 	"github.com/i0Ek3/rpcie/server"
 )
 
+// Call denotes a RPC object
 type Call struct {
 	Seq           uint64
 	ServiceMethod string
 	Args          any
 	Reply         any
 	Error         error
-	Done          chan *Call
+	// Done supports for asynchronous calls
+	Done chan *Call
 }
 
 func (call *Call) done() {
 	call.Done <- call
 }
 
+// RPC Client
 type Client struct {
 	// cc denotes the codec for Client
-	cc  codec.Codec
+	cc codec.Codec
+	// opt uses to protocol exchange
 	opt *server.Option
 
 	// sendLock guaranteed orderly delivery of requests
@@ -226,7 +230,7 @@ func (client *Client) Go(serviceName string, args, reply any, done chan *Call) *
 		Reply:         reply,
 		Done:          done,
 	}
-	client.send(call)
+	go client.send(call)
 	return call
 }
 

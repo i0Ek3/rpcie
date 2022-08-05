@@ -41,7 +41,7 @@ var DefaultOption = &Option{
 	ConnectTimeout: 10 * time.Second,
 }
 
-// RPC Server
+// Server denotes an RPC Server
 type Server struct {
 	serviceMap sync.Map
 }
@@ -97,12 +97,12 @@ func (server *Server) findService(serviceMethod string) (svc *service, mtype *me
 		return
 	}
 	serviceName, methodName := serviceMethod[:dot], serviceMethod[dot+1:]
-	svci, ok := server.serviceMap.Load(serviceName)
+	svc_, ok := server.serviceMap.Load(serviceName)
 	if !ok {
 		err = errors.New("rpc server: cannot find service " + serviceMethod)
 		return
 	}
-	svc = svci.(*service)
+	svc = svc_.(*service)
 	mtype = svc.method[methodName]
 	if mtype == nil {
 		err = errors.New("rpc server: cannot find method " + methodName)
@@ -205,12 +205,12 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	req.argv = req.mtype.newArgv()
 	req.replyv = req.mtype.newReplyv()
 
-	argvi := req.argv.Interface()
+	argv_ := req.argv.Interface()
 	if req.argv.Type().Kind() != reflect.Ptr {
-		argvi = req.argv.Addr().Interface()
+		argv_ = req.argv.Addr().Interface()
 	}
 	// deserialize the request message into the first input parameter argv
-	if err = cc.ReadBody(argvi); err != nil {
+	if err = cc.ReadBody(argv_); err != nil {
 		log.Println("rpc server: read body err:", err)
 		return req, err
 	}

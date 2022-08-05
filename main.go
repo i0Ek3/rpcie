@@ -19,7 +19,7 @@ type Args struct {
 	Inta, Intb int
 }
 
-// Sum is a RPC method
+// Sum is an RPC method
 func (f Foo) Sum(args Args, reply *int) error {
 	*reply = args.Inta + args.Intb
 	return nil

@@ -19,7 +19,8 @@ func (f Foo) Sum(args Args, reply *int) error {
 
 func _assert(condition bool, msg string, v ...any) {
 	if !condition {
-		panic(fmt.Sprintf("assertion failed: "+msg, v...))
+		s := fmt.Sprintf("assertion failed: "+msg, v...)
+		panic(any(s))
 	}
 }
 

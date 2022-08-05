@@ -18,11 +18,13 @@ import (
 	"github.com/i0Ek3/rpcie/server"
 )
 
-// Call denotes a RPC object
+// Call denotes an RPC object
 type Call struct {
+	// request message from client
 	Seq           uint64
 	ServiceMethod string
 	Args          any
+	// response message from server
 	Reply         any
 	Error         error
 	// Done supports for asynchronous calls
@@ -33,7 +35,7 @@ func (call *Call) done() {
 	call.Done <- call
 }
 
-// RPC Client
+// Client denotes an RPC Client
 type Client struct {
 	// cc denotes the codec for Client
 	cc codec.Codec
@@ -121,7 +123,7 @@ func (client *Client) terminateCall(err error) {
 // call is non-exist
 // call is exist
 // 		server occurs error, h.Error != nil
-// 		server is nomal, need to read body form Reply
+// 		server is normal, need to read body form Reply
 func (client *Client) receive() {
 	var err error
 	for err == nil {
@@ -293,7 +295,7 @@ func DialHTTP(network, addr string, opts ...*server.Option) (*Client, error) {
 	return dialTimeout(NewHTTPClient, network, addr, opts...)
 }
 
-// XDial calls different methods to connect to a RPC server accroding the first parameter,
+// XDial calls different methods to connect to an RPC server according the first parameter,
 // rpcAddr's format is protocol@addr: http@127.0.0.1:8888, tcp@127.0.0.1:8888, unix@/tmp/rpcie.sock
 func (client *Client) XDial(rpcAddr string, opts ...*server.Option) (*Client, error) {
 	parts := strings.Split(rpcAddr, "@")

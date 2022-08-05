@@ -15,7 +15,8 @@ import (
 
 func _assert(condition bool, msg string, v ...any) {
 	if !condition {
-		panic(fmt.Sprintf("assertion failed: "+msg, v...))
+		s := fmt.Sprintf("assertion failed: "+msg, v...)
+		panic(any(s))
 	}
 }
 

@@ -37,12 +37,12 @@ type debugService struct {
 	Method map[string]*methodType
 }
 
-func (server debugHTTP) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (server debugHTTP) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	var services []debugService
-	server.serviceMap.Range(func(namei, svci any) bool {
-		svc := svci.(*service)
+	server.serviceMap.Range(func(name_, svc_ any) bool {
+		svc := svc_.(*service)
 		services = append(services, debugService{
-			Name:   namei.(string),
+			Name:   name_.(string),
 			Method: svc.method,
 		})
 		return true
